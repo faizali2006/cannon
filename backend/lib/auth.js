@@ -1,9 +1,8 @@
 const config = require('./config');
+const crypto = require('node:crypto');
 
 let josePromise;
-let firebaseKeySet;
-let firebaseAdminAuth;
-const defaultFirebaseJwksUrl = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
+let twilioClient;
 
 function httpError(message, statusCode, code) {
   return Object.assign(new Error(message), { statusCode, code });
@@ -20,74 +19,99 @@ async function jose() {
   return josePromise;
 }
 
-async function verifyFirebaseToken(token) {
-  if (!config.firebaseProjectId) throw httpError('Server authentication is not configured', 503, 'AUTH_NOT_CONFIGURED');
-  if (config.firebaseCheckRevoked && config.firebaseJwksUrl === defaultFirebaseJwksUrl) {
+function getTwilioClient() {
+  if (!twilioClient) {
+    if (!config.twilioAccountSid || !config.twilioAuthToken) {
+      throw httpError('Twilio is not configured', 503, 'AUTH_NOT_CONFIGURED');
+    }
+    const twilio = require('twilio');
+    twilioClient = twilio(config.twilioAccountSid, config.twilioAuthToken);
+  }
+  return twilioClient;
+}
+
+async function sendOtp(phoneNumber) {
+  if (config.authMode === 'demo') return { success: true, demo: true };
+  if (!config.twilioVerifyServiceSid) throw httpError('Twilio Verify Service SID not configured', 503, 'AUTH_NOT_CONFIGURED');
+  const client = getTwilioClient();
+  try {
+    await client.verify.v2.services(config.twilioVerifyServiceSid).verifications.create({
+      to: phoneNumber,
+      channel: 'sms'
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('[auth] Twilio send OTP error:', error);
+    throw httpError('Failed to send OTP', 500, 'SEND_OTP_FAILED');
+  }
+}
+
+async function verifyOtp(phoneNumber, code) {
+  if (config.authMode === 'demo') {
+    if (code !== '123456') throw httpError('Invalid OTP', 401, 'INVALID_OTP');
+  } else {
+    if (!config.twilioVerifyServiceSid) throw httpError('Twilio Verify Service SID not configured', 503, 'AUTH_NOT_CONFIGURED');
+    const client = getTwilioClient();
     try {
-      if (!firebaseAdminAuth) {
-        const { applicationDefault, getApps, initializeApp } = require('firebase-admin/app');
-        const { getAuth } = require('firebase-admin/auth');
-        const app = getApps()[0] || initializeApp({ credential: applicationDefault(), projectId: config.firebaseProjectId });
-        firebaseAdminAuth = getAuth(app);
+      const verificationCheck = await client.verify.v2.services(config.twilioVerifyServiceSid).verificationChecks.create({
+        to: phoneNumber,
+        code: code
+      });
+      if (verificationCheck.status !== 'approved') {
+        throw httpError('Invalid OTP', 401, 'INVALID_OTP');
       }
-      const payload = await firebaseAdminAuth.verifyIdToken(token, true);
-      if (payload.firebase?.sign_in_provider !== 'phone') throw httpError('Phone authentication is required', 403, 'PHONE_AUTH_REQUIRED');
-      return {
-        uid: payload.uid,
-        phoneNumber: typeof payload.phone_number === 'string' ? payload.phone_number : null,
-        provider: payload.firebase.sign_in_provider,
-        issuedAt: payload.iat,
-        authTime: payload.auth_time
-      };
     } catch (error) {
       if (error.statusCode) throw error;
-      const revoked = error.code === 'auth/id-token-revoked' || error.code === 'auth/user-disabled';
-      throw httpError(revoked ? 'Authentication session was revoked' : 'Invalid or expired authentication token', 401, revoked ? 'TOKEN_REVOKED' : 'INVALID_TOKEN');
+      console.error('[auth] Twilio verify OTP error:', error);
+      throw httpError('Invalid OTP', 401, 'INVALID_OTP');
     }
   }
-  const { createRemoteJWKSet, jwtVerify } = await jose();
-  firebaseKeySet ||= createRemoteJWKSet(new URL(config.firebaseJwksUrl), {
-    cooldownDuration: 30000,
-    cacheMaxAge: 60 * 60 * 1000,
-    timeoutDuration: 10000
-  });
-  let result;
+
+  // Generate JWT
+  const { SignJWT } = await jose();
+  if (!config.jwtSecret || config.jwtSecret.length < 32) throw httpError('JWT secret not configured', 503, 'AUTH_NOT_CONFIGURED');
+  
+  // Hash phone number to create a deterministic UID (or just use phone number as UID, but hashing is safer for DB IDs)
+  const uid = 'seller:' + crypto.createHash('sha256').update(phoneNumber).digest('hex').slice(0, 16);
+  const secret = new TextEncoder().encode(config.jwtSecret);
+  const token = await new SignJWT({ phone_number: phoneNumber })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setSubject(uid)
+    .setExpirationTime('30d')
+    .sign(secret);
+    
+  return { token, uid, provider: 'phone' };
+}
+
+async function verifyJwtToken(token) {
+  if (!config.jwtSecret || config.jwtSecret.length < 32) throw httpError('Server authentication is not configured', 503, 'AUTH_NOT_CONFIGURED');
+  const { jwtVerify } = await jose();
+  const secret = new TextEncoder().encode(config.jwtSecret);
+  
   try {
-    result = await jwtVerify(token, firebaseKeySet, {
-      algorithms: ['RS256'],
-      audience: config.firebaseProjectId,
-      issuer: `https://securetoken.google.com/${config.firebaseProjectId}`,
-      clockTolerance: 5
-    });
+    const { payload } = await jwtVerify(token, secret, { algorithms: ['HS256'] });
+    return {
+      uid: payload.sub,
+      phoneNumber: payload.phone_number || null,
+      provider: 'phone',
+      issuedAt: payload.iat,
+      authTime: payload.iat
+    };
   } catch (error) {
-    console.warn(`[auth] Firebase token rejected: ${error.code || 'verification_error'} ${error.message || ''}`.trim());
     throw httpError('Invalid or expired authentication token', 401, 'INVALID_TOKEN');
   }
-  const { payload } = result;
-  if (!payload.sub || typeof payload.sub !== 'string' || payload.sub.length > 128) {
-    throw httpError('Invalid authentication subject', 401, 'INVALID_TOKEN');
-  }
-  if (!Number.isFinite(payload.auth_time) || payload.auth_time > Math.floor(Date.now() / 1000) + 5) {
-    throw httpError('Invalid authentication time', 401, 'INVALID_TOKEN');
-  }
-  if (payload.firebase?.sign_in_provider !== 'phone') throw httpError('Phone authentication is required', 403, 'PHONE_AUTH_REQUIRED');
-  return {
-    uid: payload.sub,
-    phoneNumber: typeof payload.phone_number === 'string' ? payload.phone_number : null,
-    provider: payload.firebase?.sign_in_provider || 'unknown',
-    issuedAt: payload.iat,
-    authTime: payload.auth_time
-  };
 }
 
 async function authenticate(request) {
   if (config.authMode === 'demo') {
     if (config.environment === 'production') throw httpError('Demo authentication is disabled in production', 503, 'AUTH_NOT_CONFIGURED');
-    return { uid: 'local-seller', phoneNumber: '+910000000000', provider: 'demo' };
+    const token = bearerToken(request);
+    if (!token) return { uid: 'local-seller', phoneNumber: '+910000000000', provider: 'demo' };
   }
   const token = bearerToken(request);
   if (!token) throw httpError('Authentication required', 401, 'AUTH_REQUIRED');
-  return verifyFirebaseToken(token);
+  return verifyJwtToken(token);
 }
 
-module.exports = { authenticate, bearerToken, verifyFirebaseToken, httpError };
+module.exports = { authenticate, bearerToken, verifyJwtToken, sendOtp, verifyOtp, httpError };

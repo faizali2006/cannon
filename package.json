@@ -21,7 +21,6 @@
     "test": "node --no-warnings --test backend/test/*.test.js"
   },
   "dependencies": {
-    "@capacitor-firebase/authentication": "^8.5.1",
     "@capacitor/android": "^8.5.1",
     "@capacitor/app-launcher": "^8.0.1",
     "@capacitor/camera": "^8.2.4",
@@ -30,11 +29,10 @@
     "@capacitor/preferences": "^8.0.1",
     "@capacitor/share": "^8.0.1",
     "@imgly/background-removal-node": "^1.4.5",
-    "firebase": "^12.18.0",
-    "firebase-admin": "14.3.0",
     "jose": "^6.1.0",
     "pg": "^8.23.0",
-    "sharp": "^0.32.6"
+    "sharp": "^0.32.6",
+    "twilio": "^6.1.0"
   },
   "overrides": {
     "uuid": "^11.1.1"

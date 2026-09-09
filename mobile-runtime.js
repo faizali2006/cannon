@@ -3,61 +3,23 @@ import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { Network } from '@capacitor/network';
 import { Preferences } from '@capacitor/preferences';
 import { AppLauncher } from '@capacitor/app-launcher';
-import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 
 const isNative = Capacitor.isNativePlatform();
-let verificationId = '';
-let webAuth;
-let webAuthModule;
-let webConfirmation;
-let recaptchaVerifier;
-let verifiedWebUser;
-let verifiedWebIdToken = '';
+let currentPhoneNumber = '';
+let currentAuthToken = '';
 
-const firebaseWebConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || ''
-};
-
-async function getWebAuth() {
-  if (isNative) return null;
-  if (Object.values(firebaseWebConfig).some(value => !value)) throw new Error('Firebase web OTP is not configured. Add the Firebase web app settings before testing login.');
-  if (!webAuth) {
-    const appModule = await import('firebase/app');
-    webAuthModule = await import('firebase/auth');
-    const app = appModule.getApps().length ? appModule.getApp() : appModule.initializeApp(firebaseWebConfig);
-    webAuth = webAuthModule.getAuth(app);
-    // This Vite development-only flag enables Firebase's official mock
-    // reCAPTCHA flow for phone numbers explicitly allowlisted in Firebase.
-    // Production builds do not receive this local environment value.
-    if (import.meta.env.VITE_FIREBASE_TEST_MODE === 'true') {
-      webAuth.settings.appVerificationDisabledForTesting = true;
-    }
-    await webAuth.authStateReady();
-  }
-  return webAuth;
-}
-
-function clearWebRecaptcha() {
-  recaptchaVerifier?.clear();
-  recaptchaVerifier = null;
+// Attempt to load existing token from local storage
+if (!isNative) {
+  currentAuthToken = localStorage.getItem('shilpsarathi-auth-token') || '';
+} else {
+  Preferences.get({ key: 'shilpsarathi-auth-token' }).then(result => {
+    currentAuthToken = result.value || '';
+  });
 }
 
 window.SHILP_CONFIG = { apiOrigin: __SHILP_API_ORIGIN__, authMode: __SHILP_AUTH_MODE__, release: __SHILP_RELEASE__, native: isNative };
 
 if (isNative) {
-  FirebaseAuthentication.addListener('phoneCodeSent', event => {
-    verificationId = event.verificationId;
-    window.dispatchEvent(new CustomEvent('nativephonecodesent'));
-  });
-  FirebaseAuthentication.addListener('phoneVerificationFailed', event => {
-    window.dispatchEvent(new CustomEvent('nativeautherror', { detail: event.message || 'Phone verification failed' }));
-  });
-  FirebaseAuthentication.addListener('phoneVerificationCompleted', () => {
-    window.dispatchEvent(new CustomEvent('nativephoneverified'));
-  });
   Network.addListener('networkStatusChange', status => {
     window.dispatchEvent(new Event(status.connected ? 'online' : 'offline'));
   });
@@ -90,74 +52,78 @@ window.NativeBridge = {
   },
 
   async sendPhoneOtp(phoneNumber, resendCode = false) {
-    if (__SHILP_AUTH_MODE__ !== 'firebase') throw new Error('Real OTP is not configured. Enable Firebase authentication; demo codes are disabled.');
-    verificationId = '';
-    const languageCode = localStorage.getItem('shilpsarathi-seller-language') || 'hi';
+    if (__SHILP_AUTH_MODE__ !== 'twilio' && __SHILP_AUTH_MODE__ !== 'demo') {
+      throw new Error('Real OTP is not configured.');
+    }
+    currentPhoneNumber = phoneNumber;
+    
+    // Call our backend API to send OTP via Twilio
+    const apiBase = __SHILP_API_ORIGIN__ ? __SHILP_API_ORIGIN__.replace(/\/$/, '') : (location.protocol === 'file:' ? 'http://localhost:8787' : '');
+    const response = await fetch(`${apiBase}/api/auth/send-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber })
+    });
+    
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to send OTP');
+    }
+    
     if (isNative) {
-      await FirebaseAuthentication.setLanguageCode({ languageCode });
-      await FirebaseAuthentication.signInWithPhoneNumber({ phoneNumber, timeout: 60, resendCode });
-    } else {
-      const auth = await getWebAuth();
-      auth.languageCode = languageCode;
-      clearWebRecaptcha();
-      recaptchaVerifier = new webAuthModule.RecaptchaVerifier(auth, 'firebase-recaptcha', { size: 'invisible' });
-      webConfirmation = await webAuthModule.signInWithPhoneNumber(auth, phoneNumber, recaptchaVerifier);
       window.dispatchEvent(new CustomEvent('nativephonecodesent'));
     }
-    return { demo: false };
+    return { demo: __SHILP_AUTH_MODE__ === 'demo' };
   },
 
   async confirmPhoneOtp(code) {
-    if (__SHILP_AUTH_MODE__ !== 'firebase') throw new Error('Real OTP is not configured. Demo codes are disabled.');
-    if (isNative) {
-      if (!verificationId) throw new Error('Verification session expired. Request a new OTP.');
-      return FirebaseAuthentication.confirmVerificationCode({ verificationId, verificationCode: code });
+    if (__SHILP_AUTH_MODE__ !== 'twilio' && __SHILP_AUTH_MODE__ !== 'demo') {
+      throw new Error('Real OTP is not configured.');
     }
-    if (!webConfirmation) throw new Error('Verification session expired. Request a new OTP.');
-    const result = await webConfirmation.confirm(code);
-    // Keep the just-verified user and token available immediately. Firebase can
-    // update auth.currentUser asynchronously in some mobile browsers, while the
-    // next screen may submit the seller profile straight away.
-    verifiedWebUser = result.user;
-    verifiedWebIdToken = await result.user.getIdToken(true);
-    webConfirmation = null;
-    clearWebRecaptcha();
-    return result;
+    if (!currentPhoneNumber) {
+      throw new Error('No phone number is currently active for verification.');
+    }
+    
+    // Call our backend API to verify OTP via Twilio and get a custom JWT
+    const apiBase = __SHILP_API_ORIGIN__ ? __SHILP_API_ORIGIN__.replace(/\/$/, '') : (location.protocol === 'file:' ? 'http://localhost:8787' : '');
+    const response = await fetch(`${apiBase}/api/auth/verify-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber: currentPhoneNumber, code })
+    });
+    
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || 'Invalid OTP');
+    }
+    
+    if (data.token) {
+      currentAuthToken = data.token;
+      if (isNative) {
+        await Preferences.set({ key: 'shilpsarathi-auth-token', value: data.token });
+      } else {
+        localStorage.setItem('shilpsarathi-auth-token', data.token);
+      }
+    }
+    
+    return data;
   },
 
   async getIdToken() {
-    if (__SHILP_AUTH_MODE__ !== 'firebase') return '';
-    if (isNative) {
-      const result = await FirebaseAuthentication.getIdToken();
-      return result.token || '';
-    }
-    const auth = await getWebAuth();
-    const user = auth.currentUser || verifiedWebUser;
-    if (!user) return verifiedWebIdToken;
-    verifiedWebIdToken = await user.getIdToken();
-    return verifiedWebIdToken;
+    return currentAuthToken;
   },
 
   async isAuthenticated() {
-    if (__SHILP_AUTH_MODE__ !== 'firebase') return false;
-    if (isNative) {
-      const result = await FirebaseAuthentication.getCurrentUser();
-      return Boolean(result.user?.uid);
-    }
-    return Boolean((await getWebAuth()).currentUser?.uid || verifiedWebUser?.uid);
+    return Boolean(currentAuthToken);
   },
 
   async signOut() {
-    verificationId = '';
-    webConfirmation = null;
-    verifiedWebUser = null;
-    verifiedWebIdToken = '';
-    clearWebRecaptcha();
-    if (__SHILP_AUTH_MODE__ !== 'firebase') return;
-    if (isNative) await FirebaseAuthentication.signOut();
-    else {
-      const auth = await getWebAuth();
-      await webAuthModule.signOut(auth);
+    currentPhoneNumber = '';
+    currentAuthToken = '';
+    if (isNative) {
+      await Preferences.remove({ key: 'shilpsarathi-auth-token' });
+    } else {
+      localStorage.removeItem('shilpsarathi-auth-token');
     }
   },
 
