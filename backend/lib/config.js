@@ -4,17 +4,21 @@ const path = require('node:path');
 const backendRoot = path.resolve(__dirname, '..');
 
 function loadLocalEnv() {
-  const envPath = path.join(backendRoot, '.env');
-  if (!fs.existsSync(envPath)) return;
-  for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const separator = trimmed.indexOf('=');
-    if (separator < 1) continue;
-    const key = trimmed.slice(0, separator).trim();
-    const value = trimmed.slice(separator + 1).trim().replace(/^['"]|['"]$/g, '');
-    if (!(key in process.env)) process.env[key] = value;
-  }
+  const rootEnvPath = path.join(backendRoot, '..', '.env');
+  const backendEnvPath = path.join(backendRoot, '.env');
+  
+  [rootEnvPath, backendEnvPath].forEach(envPath => {
+    if (!fs.existsSync(envPath)) return;
+    for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const separator = trimmed.indexOf('=');
+      if (separator < 1) continue;
+      const key = trimmed.slice(0, separator).trim();
+      const value = trimmed.slice(separator + 1).trim().replace(/^['"]|['"]$/g, '');
+      if (!(key in process.env)) process.env[key] = value;
+    }
+  });
 }
 
 loadLocalEnv();
@@ -40,10 +44,11 @@ module.exports = {
   uploadDir: path.join(backendRoot, 'uploads'),
   port: boundedNumber(process.env.PORT, 8787, 1, 65535),
   environment: (process.env.NODE_ENV || 'development').toLowerCase(),
-  authMode: (process.env.AUTH_MODE || 'demo').toLowerCase() === 'firebase' ? 'firebase' : 'demo',
-  firebaseProjectId: process.env.FIREBASE_PROJECT_ID || '',
-  firebaseJwksUrl: process.env.FIREBASE_JWKS_URL || 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com',
-  firebaseCheckRevoked: (process.env.FIREBASE_CHECK_REVOKED || 'true').toLowerCase() !== 'false',
+  authMode: (process.env.AUTH_MODE || 'demo').toLowerCase() === 'twilio' ? 'twilio' : 'demo',
+  twilioAccountSid: process.env.TWILIO_ACCOUNT_SID || '',
+  twilioAuthToken: process.env.TWILIO_AUTH_TOKEN || '',
+  twilioVerifyServiceSid: process.env.TWILIO_VERIFY_SERVICE_SID || '',
+  jwtSecret: process.env.JWT_SECRET || '',
   corsAllowedOrigins: (process.env.CORS_ALLOWED_ORIGINS || 'http://localhost:8787,http://localhost:5173,https://localhost').split(',').map(value => value.trim()).filter(Boolean),
   mediaSigningKey: process.env.MEDIA_SIGNING_KEY || '',
   mediaUrlTtlSeconds: boundedNumber(process.env.MEDIA_URL_TTL_SECONDS, 900, 60, 86400),
