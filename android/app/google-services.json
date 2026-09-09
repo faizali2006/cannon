@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "402126878481",
+    "project_id": "shilpsarathi",
+    "storage_bucket": "shilpsarathi.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:402126878481:android:9d8b7f772f575a532c3eb0",
+        "android_client_info": {
+          "package_name": "in.shilpsarathi.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAfEBbVjgKtA8gUUm_RPxh42sCDRfPNrMs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

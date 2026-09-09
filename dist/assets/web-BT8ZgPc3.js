@@ -1,0 +1,1 @@
+import{a as e,i as t,o as n}from"./index-McGpT7Xy.js";var r;n((()=>{e(),r=class extends t{async canOpenUrl(e){return{value:!0}}async openUrl(e){return window.open(e.url,`_blank`),{completed:!0}}}}))();export{r as AppLauncherWeb};

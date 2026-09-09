@@ -1,0 +1,15 @@
+# Never upload local credentials, device projects, caches, or user data.
+.gcloudignore
+.git/
+.idea/
+.gradle-home/
+node_modules/
+android/
+.env
+.env.*
+backend/.env
+backend/data/*
+backend/uploads/*
+*.log
+
+# The built web client in dist/ is intentionally deployed with the API.

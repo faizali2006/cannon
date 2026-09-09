@@ -1,0 +1,46 @@
+{
+  "name": "shilpsarathi",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production-oriented Android app and API for Indian artisans",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node --no-warnings backend/server.js",
+    "dev": "node --watch --no-warnings backend/server.js",
+    "web:dev": "vite --host 0.0.0.0",
+    "build:web": "vite build",
+    "check:release": "node scripts/check-release.js",
+    "cap": "node -r ./scripts/os-userinfo-shim.js ./node_modules/@capacitor/cli/bin/capacitor",
+    "android:sync": "vite build --mode android && npm run cap -- sync android",
+    "android:open": "npm run cap -- open android",
+    "android:apk": "npm run android:sync && cd android && gradlew.bat assembleDebug",
+    "android:release": "npm run check:release && vite build --mode production && cap sync android && cd android && gradlew.bat bundleRelease",
+    "test": "node --no-warnings --test backend/test/*.test.js"
+  },
+  "dependencies": {
+    "@capacitor-firebase/authentication": "^8.5.1",
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/app-launcher": "^8.0.1",
+    "@capacitor/camera": "^8.2.4",
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/share": "^8.0.1",
+    "@imgly/background-removal-node": "^1.4.5",
+    "firebase": "^12.18.0",
+    "firebase-admin": "14.3.0",
+    "jose": "^6.1.0",
+    "pg": "^8.23.0",
+    "sharp": "^0.32.6"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.4.3",
+    "vite": "^8.2.2"
+  }
+}

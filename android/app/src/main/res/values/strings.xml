@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ShilpSarathi</string>
+    <string name="title_activity_main">ShilpSarathi</string>
+    <string name="package_name">in.shilpsarathi.app</string>
+    <string name="custom_url_scheme">in.shilpsarathi.app</string>
+</resources>

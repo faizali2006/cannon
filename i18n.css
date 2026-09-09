@@ -1,0 +1,75 @@
+.language-menu {
+  width: 156px;
+  max-height: 430px;
+  overflow: auto;
+}
+
+.language-menu button:first-child {
+  background: none;
+  color: inherit;
+  font-weight: 400;
+}
+
+.language-menu button.selected-language {
+  background: #fff0df;
+  color: var(--orange-dark);
+  font-weight: 700;
+}
+
+.language-menu::-webkit-scrollbar { width: 4px; }
+.language-menu::-webkit-scrollbar-thumb {
+  background: #e7d4be;
+  border-radius: 4px;
+}
+
+.language-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid #f2ebe2;
+}
+
+.language-option:last-child { border-bottom: 0; }
+
+.language-menu .language-select {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px;
+}
+
+.language-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.language-check { margin-left: 8px; }
+
+.language-menu .language-preview {
+  flex: none;
+  width: 38px;
+  min-height: 38px;
+  display: grid;
+  place-items: center;
+  color: var(--orange-dark);
+  border-radius: 50%;
+}
+
+.language-preview .icon { width: 18px; height: 18px; }
+.language-preview.speaking {
+  color: #fff;
+  background: var(--orange);
+}
+
+html[lang="ta"] body,
+html[lang="te"] body,
+html[lang="kn"] body,
+html[lang="bn"] body,
+html[lang="gu"] body,
+html[lang="pa"] body,
+html[lang="ml"] body {
+  font-family: system-ui, "Noto Sans", sans-serif;
+}
