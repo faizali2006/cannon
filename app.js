@@ -191,6 +191,10 @@ function resetCapturedPhoto() {
   cameraPlaceholder.hidden = false;
   fileInput.value = '';
   cameraInput.value = '';
+  currentProduct = null;
+  textInput.value = '';
+  speechTranscript = '';
+  document.getElementById('text-description-count').textContent = '0';
 }
 async function readSelectedPhoto(input) {
   const file = input.files?.[0];
@@ -307,6 +311,35 @@ async function createListing(transcript) {
   try {
     const result = await ShilpAPI.generateListing({ imageDataUrl: capturedImage, audioDataUrl: transcript ? null : recordedAudio || null, transcript: transcript || undefined, language: locale, status: 'draft' });
     currentProduct = result.product; renderProduct(); showScreen('ready-screen');
+    
+    // Auto-trigger dynamic AI pricing
+    const spinner = document.getElementById('dynamic-price-spinner');
+    document.getElementById('calculating-price-text').textContent = 'Calculating price...';
+    spinner.style.display = 'flex';
+    const pricingDl = document.querySelector('.listing-copy dl');
+    const priceReason = document.getElementById('generated-price-reason');
+    if (pricingDl) pricingDl.hidden = true;
+    if (priceReason) priceReason.hidden = true;
+    try {
+      const desc = currentProduct.descriptionEn || currentProduct.descriptionHi || '';
+      const aiPrice = await ShilpAPI.suggestPriceFree(capturedImage, desc);
+      currentProduct = (await ShilpAPI.updateProduct(currentProduct.id, {
+        priceMin: aiPrice.price_range.min,
+        priceSuggested: aiPrice.suggested_price,
+        priceMax: aiPrice.price_range.max,
+        pricingExplanation: aiPrice.breakdown_reasoning
+      })).product;
+      currentProduct.itemClassification = aiPrice.item_classification;
+      renderProduct();
+    } catch (err) {
+      console.error("Gemini API Error Detail:", err);
+      notify(I18N.t('AI pricing estimation failed. Please check your connection or try again.', locale));
+    } finally {
+      spinner.style.display = 'none';
+      if (pricingDl) pricingDl.hidden = false;
+      if (priceReason) priceReason.hidden = false;
+    }
+    
   } catch (error) {
     showScreen('voice-screen');
     const message = error.code === 'AI_IMAGE_QUOTA_UNAVAILABLE'
@@ -314,13 +347,19 @@ async function createListing(transcript) {
       : error.code === 'AI_IMAGE_ENHANCEMENT_FAILED'
         ? I18N.t('तस्वीर साफ नहीं हुई। कृपया फिर कोशिश करें।', locale)
         : error.queuedOffline ? 'इंटरनेट आने पर लिस्टिंग अपने आप तैयार होगी' : (error.message || 'लिस्टिंग तैयार नहीं हुई—फिर से कोशिश करें');
-    notify(message);
+    notify(I18N.t(message, locale));
   }
 }
 function renderProduct() {
   if (!currentProduct) return;
   const english = locale === 'en';
-  const title = (english ? currentProduct.titleEn : currentProduct.titleHi) || currentProduct.titleEn || currentProduct.titleHi || 'उत्पाद';
+  let title = (english ? currentProduct.titleEn : currentProduct.titleHi) || currentProduct.titleEn || currentProduct.titleHi || 'उत्पाद';
+  if (currentProduct.itemClassification === 'Mass-Produced') {
+    title = title.replace('Handmade Product — ', 'Product — ').replace('हस्तनिर्मित उत्पाद — ', 'उत्पाद — ');
+    document.getElementById('mass-produced-warning').hidden = false;
+  } else {
+    document.getElementById('mass-produced-warning').hidden = true;
+  }
   const description = (english ? currentProduct.descriptionEn : currentProduct.descriptionHi) || currentProduct.descriptionEn || currentProduct.descriptionHi || '';
   document.getElementById('generated-title').textContent = english ? title : I18N.t(title, locale);
   document.getElementById('generated-description').textContent = english ? description : I18N.t(description, locale);
@@ -339,8 +378,9 @@ document.getElementById('save-price-range').addEventListener('click', async () =
   if (![minimum,best,maximum].every(Number.isFinite) || minimum < 1 || minimum > best || best > maximum) return notify('कीमत क्रम सही रखें: न्यूनतम ≤ अच्छी ≤ अधिकतम');
   try { currentProduct = (await ShilpAPI.updateProduct(currentProduct.id, { priceMin: minimum, priceSuggested: best, priceMax: maximum })).product; renderProduct(); priceDialog.close(); } catch { notify('कीमत नहीं बदली—सर्वर जाँचें'); }
 });
-document.getElementById('share-button').addEventListener('click', async () => { if (!currentProduct) return; try { const share = await ShilpAPI.shareProduct(currentProduct.id); await NativeBridge.openWhatsApp(share.text); } catch { notify('WhatsApp नहीं खुला—फिर से कोशिश करें'); } });
-document.getElementById('save-listing').addEventListener('click', async () => { if (!currentProduct) return; try { currentProduct = (await ShilpAPI.updateProduct(currentProduct.id, { status: 'ready' })).product; await loadInventory(); showScreen('inventory-screen'); } catch { notify('उत्पाद नहीं सहेजा—सर्वर जाँचें'); } });
+
+document.getElementById('share-button').addEventListener('click', async () => { if (!currentProduct) return; try { const share = await ShilpAPI.shareProduct(currentProduct.id); await NativeBridge.openWhatsApp(share.text); } catch { notify(I18N.t('WhatsApp नहीं खुला—फिर से कोशिश करें', locale)); } });
+document.getElementById('save-listing').addEventListener('click', async () => { if (!currentProduct) return; try { currentProduct = (await ShilpAPI.updateProduct(currentProduct.id, { status: 'ready' })).product; await loadInventory(); showScreen('inventory-screen'); } catch { notify(I18N.t('उत्पाद नहीं सहेजा—सर्वर जाँचें', locale)); } });
 async function loadInventory() {
   const list = document.getElementById('inventory-list');
   try {

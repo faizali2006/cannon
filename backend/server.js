@@ -293,6 +293,11 @@ async function handleApi(request, response, url) {
     rateLimit(identity);
     return sendJson(response, 200, await ai.suggestPrice(await readJson(request)));
   }
+  if (method === 'POST' && url.pathname === '/api/ai/suggest-price-free') {
+    rateLimit(identity);
+    const body = await readJson(request);
+    return sendJson(response, 200, await ai.suggestPriceFree(body.imageDataUrl, body.description));
+  }
   if (method === 'POST' && url.pathname === '/api/listings/generate') {
     rateLimit(identity);
     return sendJson(response, 201, { product: serializeProduct(await generateListing(await readJson(request), identity)), aiMode: config.aiMode });
