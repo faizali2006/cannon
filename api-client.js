@@ -154,14 +154,13 @@
     }
   }
 
-  window.addEventListener('online', () => flushQueue().catch(() => {}));
-
-  window.ShilpAPI = {
+  window.addEventListener('online', () => flushQueue().catch(() => {}));  window.ShilpAPI = {
     serviceOrigin,
     health: (timeoutMs = 3000) => request('/health', {}, timeoutMs),
     getProfile: () => request('/me'),
     updateProfile: changes => request('/me', { method: 'PATCH', body: JSON.stringify(changes) }),
     generateListing,
+    suggestPriceFree: (imageDataUrl, description) => request('/ai/suggest-price-free', { method: 'POST', body: JSON.stringify({ imageDataUrl, description }) }),
     listProducts: () => request('/products'),
     updateProduct: (id, changes) => request(`/products/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) }),
     shareProduct: id => request(`/products/${encodeURIComponent(id)}/share`, { method: 'POST', body: '{}' }),

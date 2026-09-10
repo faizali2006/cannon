@@ -38,24 +38,52 @@ function extractResponseText(payload) {
 }
 
 async function geminiRequest(model, body, timeoutMs = 120000, apiVersion = 'v1beta') {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/${apiVersion}/models/${encodeURIComponent(model)}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.geminiKey },
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw apiError(payload.error?.message || `Gemini request failed (${response.status})`, 502, payload.error);
-    return payload;
-  } catch (error) {
-    if (error.name === 'AbortError') throw apiError('AI processing timed out. Please try again.', 504);
-    throw error;
-  } finally {
-    clearTimeout(timer);
+  const keys = config.geminiKeys || [];
+  if (keys.length === 0) throw apiError('No Gemini API keys configured', 500);
+
+  let lastError = null;
+
+  for (let i = 0; i < keys.length; i++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/${apiVersion}/models/${encodeURIComponent(model)}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': keys[i] },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      const payload = await response.json().catch(() => ({}));
+      
+      if (!response.ok) {
+        const status = response.status;
+        const msg = payload.error?.message || `Gemini request failed (${status})`;
+        const err = apiError(msg, status === 429 ? 429 : 502, payload.error);
+        if (status === 429) {
+          console.warn(`[AI] Rate limit hit on key index ${i}. Trying next key if available...`);
+          throw err;
+        }
+        throw err;
+      }
+      return payload;
+    } catch (error) {
+      lastError = error;
+      if (error.name === 'AbortError') {
+        lastError = apiError('AI processing timed out. Please try again.', 504);
+        break;
+      }
+      if (error.statusCode !== 429) {
+        break;
+      }
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  
+  if (lastError && lastError.statusCode === 429) {
+    throw apiError('Too many AI requests. Try again later.', 429);
+  }
+  throw lastError || apiError('Gemini request failed.', 502);
 }
 
 function geminiText(payload) {
@@ -323,4 +351,68 @@ async function suggestPrice(input) {
   }
 }
 
-module.exports = { enhanceImage, generateCatalog, suggestPrice, transcribeAudio };
+const freePriceSchema = {
+  type: 'object',
+  properties: {
+    item_classification: { type: 'string' },
+    product_name: { type: 'string' },
+    category: { type: 'string' },
+    suggested_price: { type: 'integer' },
+    price_range: {
+      type: 'object',
+      properties: {
+        min: { type: 'integer' },
+        max: { type: 'integer' }
+      },
+      required: ['min', 'max']
+    },
+    breakdown_reasoning: { type: 'string' }
+  },
+  required: ['item_classification', 'product_name', 'category', 'suggested_price', 'price_range', 'breakdown_reasoning']
+};
+
+async function suggestPriceFree(imageDataUrl, description = '') {
+  try {
+    const parts = [
+      { text: `You are an expert appraiser. Identify the product in the image. Estimate a realistic retail price in Indian Rupees (INR) based on its apparent material, quality, and manufacturing type. If it is a cheap, mass-produced item like a plastic pen, estimate appropriately (e.g., ₹5 to ₹50). If it is a high-value or handmade item, estimate accordingly.
+Return a JSON object conforming strictly to the requested schema. Use "Handmade" or "Mass-Produced" for the item_classification.
+
+Seller description (if any): ${description}
+` }
+    ];
+    if (imageDataUrl) {
+      let base64Data = imageDataUrl;
+      let mimeType = 'image/jpeg';
+      if (imageDataUrl.startsWith('data:')) {
+        const partsUrl = imageDataUrl.split(',');
+        base64Data = partsUrl[1];
+        mimeType = partsUrl[0].split(':')[1].split(';')[0];
+      }
+      parts.push({
+        inlineData: {
+          data: base64Data,
+          mimeType: mimeType
+        }
+      });
+    }
+
+    const body = {
+      contents: [{ role: 'user', parts }],
+      generationConfig: {
+        temperature: 0.2,
+        responseMimeType: 'application/json',
+        responseSchema: freePriceSchema
+      }
+    };
+
+    const payload = await geminiRequest('gemini-3.6-flash', body);
+    const rawResponseText = geminiText(payload);
+    const cleanJsonString = rawResponseText.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleanJsonString);
+  } catch (error) {
+    console.warn('Free AI pricing failed:', error.message);
+    throw apiError('Could not generate dynamic pricing. ' + error.message, 502);
+  }
+}
+
+module.exports = { enhanceImage, generateCatalog, suggestPrice, suggestPriceFree, transcribeAudio };

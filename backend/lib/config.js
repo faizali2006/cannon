@@ -29,9 +29,11 @@ function boundedNumber(value, fallback, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, Math.round(parsed)));
 }
 
+const rawGeminiKey = process.env.GEMINI_API_KEY || '';
+const geminiKeys = rawGeminiKey.split(',').map(k => k.trim()).filter(Boolean);
 const requestedMode = (process.env.AI_MODE || 'demo').toLowerCase();
 const hasOpenAIKey = Boolean(process.env.OPENAI_API_KEY);
-const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY);
+const hasGeminiKey = geminiKeys.length > 0;
 const requestedProvider = (process.env.AI_PROVIDER || (hasGeminiKey ? 'gemini' : 'openai')).toLowerCase();
 const aiProvider = requestedProvider === 'gemini' && hasGeminiKey ? 'gemini'
   : requestedProvider === 'openai' && hasOpenAIKey ? 'openai'
@@ -61,13 +63,9 @@ module.exports = {
   hasOpenAIKey,
   hasGeminiKey,
   openAIKey: process.env.OPENAI_API_KEY || '',
-  geminiKey: process.env.GEMINI_API_KEY || '',
+  geminiKeys,
   geminiTextModel: process.env.GEMINI_TEXT_MODEL || 'gemini-3.5-flash-lite',
   geminiImageModel: process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image',
-  geminiGrounding: (process.env.GEMINI_GROUNDING || 'true').toLowerCase() !== 'false',
-  textModel: process.env.OPENAI_TEXT_MODEL || 'gpt-5-mini',
-  transcribeModel: process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-transcribe',
-  imageModel: process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2',
   maxJsonBytes: 30 * 1024 * 1024,
   maxImageBytes: 12 * 1024 * 1024,
   maxImageDimension: boundedNumber(process.env.MAX_IMAGE_DIMENSION, 6000, 512, 12000),
