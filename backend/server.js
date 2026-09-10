@@ -5,7 +5,7 @@ const { createHmac, timingSafeEqual } = require('node:crypto');
 const config = require('./lib/config');
 const store = require('./lib/store');
 const ai = require('./lib/ai');
-const { authenticate } = require('./lib/auth');
+const { authenticate, sendOtp, verifyOtp } = require('./lib/auth');
 const { saveDataUrl, deleteMediaUrl } = require('./lib/media');
 
 const mimeTypes = {
@@ -215,6 +215,16 @@ async function handleApi(request, response, url) {
       timestamp: new Date().toISOString()
     });
   }
+  if (method === 'POST' && url.pathname === '/api/auth/send-otp') {
+    const body = await readJson(request);
+    if (!body.phoneNumber) return sendJson(response, 400, { error: 'Phone number is required' });
+    return sendJson(response, 200, await sendOtp(body.phoneNumber));
+  }
+  if (method === 'POST' && url.pathname === '/api/auth/verify-otp') {
+    const body = await readJson(request);
+    if (!body.phoneNumber || !body.code) return sendJson(response, 400, { error: 'Phone number and code are required' });
+    return sendJson(response, 200, await verifyOtp(body.phoneNumber, body.code));
+  }
   const identity = await authenticate(request);
   const existingProfile = store.getProfile(identity.uid);
   if (!existingProfile || (identity.phoneNumber && identity.phoneNumber !== existingProfile.phoneNumber)) store.saveProfile(identity);
@@ -352,9 +362,8 @@ const server = http.createServer(async (request, response) => {
 function validateServerConfig() {
   if (config.environment !== 'production') return;
   const failures = [];
-  if (config.authMode !== 'firebase' || !config.firebaseProjectId) failures.push('Firebase authentication must be configured');
-  if (!config.firebaseCheckRevoked) failures.push('Firebase revoked-token checking must be enabled');
-  if (config.firebaseJwksUrl !== 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com') failures.push('Custom Firebase JWKS URLs are not permitted in production');
+  if (config.authMode !== 'twilio' || !config.twilioAccountSid || !config.twilioAuthToken || !config.twilioVerifyServiceSid) failures.push('Twilio authentication must be configured');
+  if (!config.jwtSecret || config.jwtSecret.length < 32) failures.push('JWT_SECRET must contain at least 32 characters');
   if (config.mediaSigningKey.length < 32) failures.push('MEDIA_SIGNING_KEY must contain at least 32 characters');
   if (!config.corsAllowedOrigins.length || config.corsAllowedOrigins.some(origin => origin === '*' || !origin.startsWith('https://'))) failures.push('CORS origins must be explicit HTTPS origins');
   if (config.aiMode !== 'live') failures.push('Live AI must be configured');
