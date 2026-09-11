@@ -1,0 +1,1 @@
+import{n as e,r as t,t as n}from"./index-C-vGW9xW.js";var r;t((()=>{e(),r=class extends n{async canOpenUrl(e){return{value:!0}}async openUrl(e){return window.open(e.url,`_blank`),{completed:!0}}}}))();export{r as AppLauncherWeb};
