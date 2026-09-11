@@ -405,7 +405,7 @@ Seller description (if any): ${description}
       }
     };
 
-    const payload = await geminiRequest('gemini-3.6-flash', body);
+    const payload = await geminiRequest(config.geminiTextModel, body);
     const rawResponseText = geminiText(payload);
     const cleanJsonString = rawResponseText.replace(/```json|```/g, '').trim();
     return JSON.parse(cleanJsonString);
