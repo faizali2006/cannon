@@ -249,12 +249,12 @@ function finishSpeechRecognition() {
 }
 function startRecording() {
   VoiceGuide.stop();
-  if (!SpeechRecognition) return notify('इस ब्राउज़र में आवाज़ से लिखना उपलब्ध नहीं है। Chrome इस्तेमाल करें।');
+  if (!SpeechRecognition) return notify(I18N.t('इस ब्राउज़र में आवाज़ से लिखना उपलब्ध नहीं है। Chrome इस्तेमाल करें।', locale));
   speechTranscript = '';
   textInput.value = '';
   recordedAudio = '';
   speechRecognition = new SpeechRecognition();
-  speechRecognition.lang = 'hi-IN';
+  speechRecognition.lang = numberLocales[locale] || 'hi-IN';
   speechRecognition.continuous = true;
   speechRecognition.interimResults = true;
   speechRecognition.onresult = event => {
@@ -283,7 +283,7 @@ function startRecording() {
     recordingActions.hidden = true;
     updateRecordTime();
     recordingTimer = setInterval(updateRecordTime, 1000);
-  } catch { notify('माइक्रोफोन उपलब्ध नहीं है। विवरण लिखें।'); }
+  } catch { notify(I18N.t('माइक्रोफोन उपलब्ध नहीं है। विवरण लिखें।', locale)); }
 }
 function stopRecording() {
   if (!recording) return;
