@@ -5,8 +5,8 @@ const keys = {
   legalConsent: 'shilpsarathi-seller-legal-consent-v1', cookies: 'shilpsarathi-optional-cookies'
 };
 const read = (key, fallback = '') => { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
-const write = (key, value) => { try { localStorage.setItem(key, String(value)); } catch {} window.NativeBridge?.savePreference?.(key, String(value)).catch(() => {}); };
-const remove = key => { try { localStorage.removeItem(key); } catch {} };
+const write = (key, value) => { try { localStorage.setItem(key, String(value)); } catch (e) { console.warn('Storage write error:', e); /* Audit optimization: Explicit error logging */ } window.NativeBridge?.savePreference?.(key, String(value)).catch(e => console.warn('NativeBridge save error:', e) /* Audit optimization: Explicit error logging */); };
+const remove = key => { try { localStorage.removeItem(key); } catch (e) { console.warn('Storage remove error:', e); /* Audit optimization: Explicit error logging */ } };
 let currentScreen = 'language-screen';
 let legalReturnScreen = 'home-screen';
 let locale = read(keys.language, 'hi');
@@ -156,7 +156,7 @@ function renderProfile() {
   document.querySelector('#profile-screen .profile-list > div:last-child dd').textContent = I18N.t('विक्रेता', locale);
 }
 document.getElementById('logout-button').addEventListener('click', async () => {
-  await NativeBridge.signOut().catch(() => {});
+  await NativeBridge.signOut().catch(e => console.warn('SignOut error:', e) /* Audit optimization: Explicit error logging */);
   [keys.authenticated, keys.phone, keys.name, keys.legalConsent].forEach(remove);
   phoneInput.value = ''; otpInput.value = ''; nameInput.value = ''; legalConsent.checked = false;
   setLoginStage('phone'); showScreen('language-screen');
@@ -203,7 +203,7 @@ async function readSelectedPhoto(input) {
   input.value = '';
 }
 document.getElementById('select-product-photo').addEventListener('click', async () => {
-  if (NativeBridge.isNative) { try { const photo = await NativeBridge.capturePhoto('gallery'); if (photo) displayPhoto(photo); } catch {} }
+  if (NativeBridge.isNative) { try { const photo = await NativeBridge.capturePhoto('gallery'); if (photo) displayPhoto(photo); } catch (e) { console.warn('Gallery capture error:', e); /* Audit optimization: Explicit error logging */ } }
   else fileInput.click();
 });
 fileInput.addEventListener('change', () => readSelectedPhoto(fileInput));
@@ -291,8 +291,8 @@ function stopRecording() {
   speechRecognition = null;
   if (activeRecognition) {
     activeRecognition.onend = null;
-    try { activeRecognition.stop(); } catch {}
-    setTimeout(() => { try { activeRecognition.abort(); } catch {} }, 400);
+    try { activeRecognition.stop(); } catch (e) { console.warn('Speech stop error:', e); /* Audit optimization: Explicit error logging */ }
+    setTimeout(() => { try { activeRecognition.abort(); } catch (e) { console.warn('Speech abort error:', e); /* Audit optimization: Explicit error logging */ } }, 400);
   }
   finishSpeechRecognition();
 }
@@ -361,14 +361,45 @@ function renderProduct() {
     document.getElementById('mass-produced-warning').hidden = true;
   }
   const description = (english ? currentProduct.descriptionEn : currentProduct.descriptionHi) || currentProduct.descriptionEn || currentProduct.descriptionHi || '';
-  document.getElementById('generated-title').textContent = english ? title : I18N.t(title, locale);
-  document.getElementById('generated-description').textContent = english ? description : I18N.t(description, locale);
-  const materials = document.getElementById('generated-materials'); materials.replaceChildren(...(currentProduct.materials || []).slice(0,3).map(value => { const span = document.createElement('span'); span.textContent = I18N.t(value, locale); return span; }));
-  document.getElementById('generated-price').textContent = formatCurrency(currentProduct.priceSuggested);
-  document.getElementById('generated-price-range').textContent = `${formatCurrency(currentProduct.priceMin || currentProduct.priceSuggested)} - ${formatCurrency(currentProduct.priceMax || currentProduct.priceSuggested)}`;
-  document.getElementById('generated-price-reason').textContent = I18N.t(currentProduct.pricingExplanation || '', locale);
-  originalImage.src = mediaUrl(currentProduct.originalImageUrl) || capturedImage; enhancedImage.src = mediaUrl(currentProduct.enhancedImageUrl) || capturedImage;
-  document.getElementById('after-image-label').textContent = I18N.t(currentProduct.enhancedImageUrl && currentProduct.enhancedImageUrl !== currentProduct.originalImageUrl ? 'साफ तस्वीर' : 'मूल तस्वीर', locale);
+  const titleText = english ? title : I18N.t(title, locale);
+  const titleEl = document.getElementById('generated-title');
+  if (titleEl.textContent !== titleText) titleEl.textContent = titleText; /* Audit optimization: Avoid redundant DOM text mutation */
+
+  const descriptionText = english ? description : I18N.t(description, locale);
+  const descEl = document.getElementById('generated-description');
+  if (descEl.textContent !== descriptionText) descEl.textContent = descriptionText; /* Audit optimization: Avoid redundant DOM text mutation */
+
+  const materials = document.getElementById('generated-materials'); 
+  const newMaterials = (currentProduct.materials || []).slice(0,3).map(value => I18N.t(value, locale));
+  const currentMaterials = Array.from(materials.children).map(el => el.textContent);
+  if (JSON.stringify(newMaterials) !== JSON.stringify(currentMaterials)) {
+    /* Audit optimization: Use DocumentFragment */
+    const frag = document.createDocumentFragment();
+    newMaterials.forEach(value => { const span = document.createElement('span'); span.textContent = value; frag.append(span); });
+    materials.replaceChildren(frag);
+  }
+
+  const priceEl = document.getElementById('generated-price');
+  const newPrice = formatCurrency(currentProduct.priceSuggested);
+  if (priceEl.textContent !== newPrice) priceEl.textContent = newPrice;
+
+  const rangeEl = document.getElementById('generated-price-range');
+  const newRange = `${formatCurrency(currentProduct.priceMin || currentProduct.priceSuggested)} - ${formatCurrency(currentProduct.priceMax || currentProduct.priceSuggested)}`;
+  if (rangeEl.textContent !== newRange) rangeEl.textContent = newRange;
+
+  const reasonEl = document.getElementById('generated-price-reason');
+  const newReason = I18N.t(currentProduct.pricingExplanation || '', locale);
+  if (reasonEl.textContent !== newReason) reasonEl.textContent = newReason;
+
+  const newOriginalSrc = mediaUrl(currentProduct.originalImageUrl) || capturedImage;
+  if (originalImage.getAttribute('src') !== newOriginalSrc) originalImage.src = newOriginalSrc;
+
+  const newEnhancedSrc = mediaUrl(currentProduct.enhancedImageUrl) || capturedImage;
+  if (enhancedImage.getAttribute('src') !== newEnhancedSrc) enhancedImage.src = newEnhancedSrc;
+
+  const afterLabelEl = document.getElementById('after-image-label');
+  const newAfterLabel = I18N.t(currentProduct.enhancedImageUrl && currentProduct.enhancedImageUrl !== currentProduct.originalImageUrl ? 'साफ तस्वीर' : 'मूल तस्वीर', locale);
+  if (afterLabelEl.textContent !== newAfterLabel) afterLabelEl.textContent = newAfterLabel;
 }
 
 const priceDialog = document.getElementById('price-dialog');
@@ -386,7 +417,10 @@ async function loadInventory() {
   try {
     const { products } = await ShilpAPI.listProducts();
     if (!products.length) { const empty = document.createElement('p'); empty.className = 'empty-state'; empty.textContent = I18N.t('अभी कोई उत्पाद नहीं है।', locale); return void list.replaceChildren(empty); }
-    list.replaceChildren(...products.map(product => { const item = document.createElement('article'); item.className = 'inventory-product'; const image = document.createElement('img'); image.src = mediaUrl(product.enhancedImageUrl || product.originalImageUrl) || 'assets/indigo-dupatta-720.jpg'; image.alt = product.titleEn || product.titleHi || I18N.t('उत्पाद तस्वीर', locale); const copy = document.createElement('div'); const title = document.createElement('strong'); const titleText = (locale === 'en' ? product.titleEn : product.titleHi) || product.titleEn || product.titleHi || I18N.t('उत्पाद', locale); title.textContent = locale === 'en' ? titleText : I18N.t(titleText, locale); const price = document.createElement('small'); price.textContent = product.priceSuggested ? formatCurrency(product.priceSuggested) : I18N.t('कीमत उपलब्ध नहीं', locale); copy.append(title, price); item.append(image, copy); return item; }));
+    /* Audit optimization: Use DocumentFragment for list injection */
+    const frag = document.createDocumentFragment();
+    products.forEach(product => { const item = document.createElement('article'); item.className = 'inventory-product'; const image = document.createElement('img'); image.src = mediaUrl(product.enhancedImageUrl || product.originalImageUrl) || 'assets/indigo-dupatta-720.jpg'; image.alt = product.titleEn || product.titleHi || I18N.t('उत्पाद तस्वीर', locale); const copy = document.createElement('div'); const title = document.createElement('strong'); const titleText = (locale === 'en' ? product.titleEn : product.titleHi) || product.titleEn || product.titleHi || I18N.t('उत्पाद', locale); title.textContent = locale === 'en' ? titleText : I18N.t(titleText, locale); const price = document.createElement('small'); price.textContent = product.priceSuggested ? formatCurrency(product.priceSuggested) : I18N.t('कीमत उपलब्ध नहीं', locale); copy.append(title, price); item.append(image, copy); frag.append(item); });
+    list.replaceChildren(frag);
   } catch { const failed = document.createElement('p'); failed.className = 'empty-state'; failed.textContent = I18N.t('उत्पाद लोड नहीं हुए।', locale); list.replaceChildren(failed); }
 }
 document.querySelectorAll('[data-go="inventory-screen"]').forEach(button => button.addEventListener('click', loadInventory));
@@ -410,7 +444,7 @@ phoneInput.value = read(keys.phone); nameInput.value = read(keys.name);
 renderProfile();
 
 window.addEventListener('authenticationrequired', async () => {
-  await NativeBridge.signOut().catch(() => {});
+  await NativeBridge.signOut().catch(e => console.warn('SignOut error on auth requirement:', e) /* Audit optimization: Explicit error logging */);
   [keys.authenticated, keys.phone, keys.name].forEach(remove);
   setLoginStage('phone');
   showScreen('login-screen');

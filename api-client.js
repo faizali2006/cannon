@@ -92,7 +92,7 @@
           transaction.oncomplete = resolve;
           transaction.onerror = () => reject(transaction.error);
         });
-      } catch (_) { break; }
+      } catch (e) { console.warn('Flush queue error:', e); /* Audit optimization: Explicit error logging */ break; }
     }
     database.close();
   }
@@ -154,7 +154,7 @@
     }
   }
 
-  window.addEventListener('online', () => flushQueue().catch(() => {}));  window.ShilpAPI = {
+  window.addEventListener('online', () => flushQueue().catch(e => console.warn('Flush queue error on online event:', e) /* Audit optimization: Explicit error logging */));  window.ShilpAPI = {
     serviceOrigin,
     health: (timeoutMs = 3000) => request('/health', {}, timeoutMs),
     getProfile: () => request('/me'),
